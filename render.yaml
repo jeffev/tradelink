@@ -1,0 +1,39 @@
+services:
+  # ── NestJS Backend ─────────────────────────────────────────────────────────
+  # dockerContext MUST be root (.) because package-lock.json lives there
+  - type: web
+    name: tradelink-backend
+    runtime: docker
+    dockerfilePath: ./apps/backend/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        sync: false          # paste from Neon dashboard
+      - key: REDIS_URL
+        sync: false          # paste from Upstash dashboard (rediss://...)
+      - key: JWT_SECRET
+        generateValue: true  # Render auto-generates a secure value
+      - key: JWT_EXPIRES_IN
+        value: 24h
+      - key: CORS_ORIGIN
+        sync: false          # paste your Vercel URL: https://tradelink-xxx.vercel.app
+      - key: WORKER_URL
+        sync: false          # paste the worker service URL after it deploys
+
+  # ── Python Backtesting Worker ───────────────────────────────────────────────
+  - type: web
+    name: tradelink-worker
+    runtime: docker
+    dockerfilePath: ./apps/backtesting-worker/Dockerfile
+    dockerContext: ./apps/backtesting-worker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"

@@ -1,0 +1,32 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.production
+.env.staging
+*.log
+.DS_Store
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+coverage/
+.nyc_output/
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.vite/
+temp/
+tmp/
+
+# SQLite dev database
+*.sqlite
+*.sqlite-journal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
