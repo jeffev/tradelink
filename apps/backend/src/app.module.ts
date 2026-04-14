@@ -35,7 +35,14 @@ import { AlertsModule } from './alerts/alerts.module';
         const redisUrl = configService.get<string>('REDIS_URL');
         // Upstash and other cloud Redis providers use a full URL (rediss://...)
         const connection = redisUrl
-          ? { url: redisUrl, lazyConnect: true, maxRetriesPerRequest: null, enableOfflineQueue: false }
+          ? {
+              url: redisUrl,
+              lazyConnect: true,
+              maxRetriesPerRequest: null,
+              enableOfflineQueue: false,
+              // Upstash uses rediss:// (TLS) — ioredis needs explicit tls options
+              ...(redisUrl.startsWith('rediss://') && { tls: { rejectUnauthorized: false } }),
+            }
           : {
               host: configService.get<string>('REDIS_HOST', 'localhost'),
               port: configService.get<number>('REDIS_PORT', 6379),
