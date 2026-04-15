@@ -2,6 +2,8 @@
 
 Plataforma de análise e gestão de trading — diário de trades, backtesting com múltiplos indicadores, simulação de DCA e scanner de mercado.
 
+**Demo em produção:** [tradelink-nine.vercel.app](https://tradelink-nine.vercel.app)
+
 ---
 
 ## Funcionalidades
@@ -114,6 +116,72 @@ PORT=3001
 CORS_ORIGIN=http://localhost:5173
 WORKER_URL=http://localhost:8000
 ```
+
+---
+
+## Arquitetura em produção
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          Usuário (browser)                          │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ HTTPS
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Vercel (CDN global)                                                │
+│  React + Vite SPA  →  tradelink-nine.vercel.app                     │
+│  vercel.json: SPA rewrites + build workspace                        │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ REST / JSON  (VITE_API_URL)
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Render — Web Service (Docker)                                      │
+│  NestJS API  →  tradelink-backend.onrender.com/api                  │
+│  • Autenticação JWT                                                 │
+│  • CRUD: trades, estratégias, filtros, alertas                      │
+│  • Enfileira jobs de backtest/DCA no BullMQ                         │
+│  • Proxy de indicadores para o worker                               │
+└──────────┬────────────────────────────┬────────────────────────────┘
+           │ TypeORM                    │ BullMQ (ioredis)
+           ▼                            ▼
+┌──────────────────────┐   ┌────────────────────────────────────────┐
+│  Neon (PostgreSQL     │   │  Upstash Redis (serverless)            │
+│  serverless)          │   │  • Fila de jobs (BullMQ)               │
+│  • Todos os dados     │   │  • Conexão TLS obrigatória             │
+│    persistentes       │   │    (rediss://...)                      │
+└──────────────────────┘   └──────────────┬─────────────────────────┘
+                                           │ job dispatched
+                                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Render — Web Service (Docker)                                      │
+│  Python FastAPI Worker  →  tradelink-worker.onrender.com            │
+│  • /run-backtest  — backtester.py + pandas                          │
+│  • /run-dca       — dca_engine.py                                   │
+│  • /calculate-indicators — indicators.py (15 indicadores)           │
+│  • /scan          — scanner.py + yfinance                           │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Fluxo de um backtest
+
+```
+Frontend → POST /api/backtesting         (NestJS)
+         → job adicionado na fila Redis  (BullMQ)
+         → worker consome o job          (Python FastAPI)
+         → calcula indicadores + engine  (pandas / yfinance)
+         → resultado salvo no PostgreSQL (TypeORM)
+         → GET /api/backtesting/:id      (frontend polling)
+```
+
+### Considerações do free tier
+
+| Serviço | Limitação | Impacto |
+|---------|-----------|---------|
+| Render (backend) | Dorme após 15 min | Primeiro request ≈ 30s para "acordar" |
+| Render (worker) | Dorme após 15 min | Primeiro backtest pode demorar mais |
+| Neon | 512 MB storage | Suficiente para dados de trading |
+| Upstash | 10 k comandos/dia (free) | Adequado para uso normal |
+| Vercel | Sem cold start (CDN) | Carregamento instantâneo |
 
 ---
 
