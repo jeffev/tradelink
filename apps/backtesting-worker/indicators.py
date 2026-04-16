@@ -261,6 +261,111 @@ def _pivot_points(
     return r2, r1, pivot, s1, s2
 
 
+def _calc_vp_levels(
+    df: pd.DataFrame, num_bins: int = 50
+) -> tuple[float, float, float] | None:
+    """Calculate POC, VAH, VAL for a DataFrame slice.
+
+    Returns (poc_price, vah, val) or None if volume data is insufficient.
+    """
+    price_min = float(df["low"].min())
+    price_max = float(df["high"].max())
+    if price_max <= price_min or df.empty:
+        return None
+
+    bin_size = (price_max - price_min) / num_bins
+    bins = np.zeros(num_bins)
+
+    for _, row in df.iterrows():
+        candle_low = float(row["low"])
+        candle_high = float(row["high"])
+        candle_volume = float(row["volume"])
+        if candle_volume <= 0:
+            continue
+        low_bin = max(0, int((candle_low - price_min) / bin_size))
+        high_bin = min(num_bins - 1, int((candle_high - price_min) / bin_size))
+        span = high_bin - low_bin + 1
+        bins[low_bin : high_bin + 1] += candle_volume / span
+
+    if bins.sum() == 0:
+        return None
+
+    # POC — bucket with highest volume
+    poc_idx = int(np.argmax(bins))
+    poc_price = price_min + (poc_idx + 0.5) * bin_size
+
+    # Value Area — expand from POC until 70 % of total volume is covered
+    total_volume = bins.sum()
+    target = total_volume * 0.70
+    va_low = poc_idx
+    va_high = poc_idx
+    va_vol = bins[poc_idx]
+
+    while va_vol < target:
+        can_expand_low = va_low > 0
+        can_expand_high = va_high < num_bins - 1
+        if not can_expand_low and not can_expand_high:
+            break
+        vol_below = bins[va_low - 1] if can_expand_low else -1.0
+        vol_above = bins[va_high + 1] if can_expand_high else -1.0
+        if vol_above >= vol_below:
+            va_high += 1
+            va_vol += bins[va_high]
+        else:
+            va_low -= 1
+            va_vol += bins[va_low]
+
+    vah = price_min + (va_high + 1) * bin_size
+    val = price_min + va_low * bin_size
+
+    return poc_price, vah, val
+
+
+def _volume_profile(
+    df: pd.DataFrame, num_bins: int = 50, period: str = "month"
+) -> list[dict]:
+    """Period-based Volume Profile.
+
+    Calculates a separate POC / VAH / VAL for each period window
+    (week / month / quarter / year / full) and returns a time series
+    [{date, poc, vah, val}] — one entry per candle — so the three levels
+    render as step lines on the price chart.
+    """
+    _PERIOD_MAP = {"week": "W", "month": "M", "quarter": "Q", "year": "A"}
+    freq = _PERIOD_MAP.get(period)  # None → full period
+
+    result: list[dict] = []
+
+    if freq is None:
+        levels = _calc_vp_levels(df, num_bins)
+        if levels:
+            poc, vah, val = levels
+            for idx in df.index:
+                result.append({
+                    "date": _date_str(idx),
+                    "poc": round(poc, 4),
+                    "vah": round(vah, 4),
+                    "val": round(val, 4),
+                })
+    else:
+        for _, group_df in df.groupby(df.index.to_period(freq)):
+            if group_df.empty:
+                continue
+            levels = _calc_vp_levels(group_df, num_bins)
+            if not levels:
+                continue
+            poc, vah, val = levels
+            for idx in group_df.index:
+                result.append({
+                    "date": _date_str(idx),
+                    "poc": round(poc, 4),
+                    "vah": round(vah, 4),
+                    "val": round(val, 4),
+                })
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Serialisation helpers
 # ---------------------------------------------------------------------------
@@ -573,6 +678,50 @@ def calculate_indicators(
             if key not in seen:
                 r2, r1, pivot, s1, s2 = _pivot_points(df["high"], df["low"], df["close"])
                 results[key] = _to_pivot_list(df.index, r2, r1, pivot, s1, s2)
+                seen.add(key)
+
+        elif name == "VOLUME_PROFILE":
+            key = "VOLUME_PROFILE"
+            if key not in seen:
+                num_bins = int(params.get("num_bins", 50))
+                vp_period = str(params.get("period", "month"))
+                results[key] = _volume_profile(df, num_bins, vp_period)
+                seen.add(key)
+
+        elif name == "VOLUME_SMA":
+            period = int(params.get("period", 20))
+            key = f"VOLUME_SMA_{period}"
+            if key not in seen:
+                results[key] = _to_list(df.index, _sma(df["volume"], period))
+                seen.add(key)
+
+        elif name == "VOLUME_RATIO":
+            # volume / SMA(volume, period) — > 1 means above-average volume
+            period = int(params.get("period", 20))
+            key = f"VOLUME_RATIO_{period}"
+            if key not in seen:
+                vol_sma = _sma(df["volume"], period)
+                ratio = df["volume"] / vol_sma.replace(0, np.nan)
+                results[key] = _to_list(df.index, ratio)
+                seen.add(key)
+
+        elif name in ("VP_POC_CROSS", "VP_VAH_CROSS", "VP_VAL_CROSS"):
+            # close - VP_level per period  (> 0 = price above level, like VWAP_CROSS)
+            vp_period = str(params.get("period", "month"))
+            key = name
+            if key not in seen:
+                field = {"VP_POC_CROSS": "poc", "VP_VAH_CROSS": "vah", "VP_VAL_CROSS": "val"}[name]
+                vp_data = _volume_profile(df, num_bins=50, period=vp_period)
+                level_map: dict[str, float] = {
+                    d["date"]: float(d[field])
+                    for d in vp_data
+                    if "date" in d and field in d
+                }
+                level_series = pd.Series(
+                    {pd.Timestamp(date): val for date, val in level_map.items()},
+                    dtype=float,
+                ).reindex(df.index)
+                results[key] = _to_list(df.index, df["close"] - level_series)
                 seen.add(key)
 
     return results

@@ -1,15 +1,6 @@
-import {
-  ResponsiveContainer,
-  ComposedChart,
-  Line,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceDot,
-  ReferenceLine,
-} from 'recharts';
+import { useEffect, useRef, useState } from 'react';
+import { createChart, CrosshairMode, LineStyle } from 'lightweight-charts';
+import type { IChartApi, Time } from 'lightweight-charts';
 import type { PricePoint, IndicatorPoint, BacktestTradeResult } from '@/types';
 
 interface Props {
@@ -19,333 +10,260 @@ interface Props {
   strategyType: string;
 }
 
-// ── Overlay indicators (same price scale) ────────────────────────────────────
-const OVERLAY_COLORS: Record<string, string> = {
-  fast_sma: '#f59e0b',
-  slow_sma: '#3b82f6',
-};
-const OVERLAY_LABELS: Record<string, string> = {
-  fast_sma: 'Fast SMA',
-  slow_sma: 'Slow SMA',
-};
-
-// ── Oscillator config ─────────────────────────────────────────────────────────
-const OSCILLATOR_PREFIXES = ['RSI', 'STOCH', 'MACD', 'CCI', 'ADX', 'WILLIAMS_R', 'OBV', 'ATR', 'BBPCTB', 'SMA_CROSS', 'VWAP_CROSS'];
+// ── Oscillator classification ─────────────────────────────────────────────────
+const OSCILLATOR_PREFIXES = [
+  'RSI', 'STOCH', 'MACD', 'CCI', 'ADX', 'WILLIAMS_R', 'OBV', 'ATR',
+  'BBPCTB', 'SMA_CROSS', 'VWAP_CROSS', 'VOLUME_RATIO',
+  'VP_POC_CROSS', 'VP_VAH_CROSS', 'VP_VAL_CROSS',
+];
 const isOscillator = (key: string) =>
   OSCILLATOR_PREFIXES.some((p) => key.toUpperCase().startsWith(p));
 
-const getPrefix = (key: string) =>
+const getOscPrefix = (key: string) =>
   OSCILLATOR_PREFIXES.find((p) => key.toUpperCase().startsWith(p)) ?? key;
 
-interface RefLine { value: number; color: string; label?: string }
+// ── Colors ────────────────────────────────────────────────────────────────────
+const OVERLAY_FIXED: Record<string, string> = {
+  fast_sma: '#f59e0b',
+  slow_sma: '#3b82f6',
+};
+const OVERLAY_PALETTE = ['#f59e0b', '#3b82f6', '#10b981', '#a78bfa', '#f87171', '#34d399', '#fb923c'];
 
+const getOverlayColor = (key: string, idx: number) =>
+  OVERLAY_FIXED[key] ?? (key.startsWith('SMA_') ? '#f59e0b' : key === 'VWAP' ? '#06b6d4' : OVERLAY_PALETTE[idx % OVERLAY_PALETTE.length]);
+
+const OSC_COLORS: Record<string, string> = {
+  RSI: '#a78bfa', STOCH: '#38bdf8', MACD: '#fb923c', CCI: '#4ade80',
+  ADX: '#f472b6', WILLIAMS_R: '#fbbf24', OBV: '#34d399', ATR: '#818cf8',
+  BBPCTB: '#f0abfc', SMA_CROSS: '#f59e0b', VWAP_CROSS: '#06b6d4',
+  VOLUME_RATIO: '#22d3ee', VP_POC_CROSS: '#f59e0b', VP_VAH_CROSS: '#4ade80', VP_VAL_CROSS: '#f87171',
+};
+const getOscColor = (key: string) => OSC_COLORS[getOscPrefix(key)] ?? '#a78bfa';
+
+// ── Reference lines per oscillator ───────────────────────────────────────────
+interface RefLine { value: number; color: string }
 const OSC_REF_LINES: Record<string, RefLine[]> = {
-  RSI:       [{ value: 30, color: '#10b981', label: '30' }, { value: 70, color: '#ef4444', label: '70' }],
-  STOCH:     [{ value: 20, color: '#10b981', label: '20' }, { value: 80, color: '#ef4444', label: '80' }],
-  MACD:      [{ value: 0,  color: '#6b7280' }],
-  CCI:       [{ value: -100, color: '#10b981', label: '-100' }, { value: 100, color: '#ef4444', label: '100' }],
-  ADX:       [{ value: 25, color: '#f59e0b', label: '25' }],
-  WILLIAMS_R:[{ value: -80, color: '#10b981', label: '-80' }, { value: -20, color: '#ef4444', label: '-20' }],
-  BBPCTB:    [{ value: 0.2, color: '#10b981', label: '0.2' }, { value: 0.8, color: '#ef4444', label: '0.8' }],
-  SMA_CROSS: [{ value: 0, color: '#6b7280' }],
-  VWAP_CROSS:[{ value: 0, color: '#6b7280' }],
+  RSI:          [{ value: 30, color: '#10b981' }, { value: 70, color: '#ef4444' }],
+  STOCH:        [{ value: 20, color: '#10b981' }, { value: 80, color: '#ef4444' }],
+  MACD:         [{ value: 0,  color: '#6b7280' }],
+  CCI:          [{ value: -100, color: '#10b981' }, { value: 100, color: '#ef4444' }],
+  ADX:          [{ value: 25, color: '#f59e0b' }],
+  WILLIAMS_R:   [{ value: -80, color: '#10b981' }, { value: -20, color: '#ef4444' }],
+  BBPCTB:       [{ value: 0.2, color: '#10b981' }, { value: 0.8, color: '#ef4444' }],
+  SMA_CROSS:    [{ value: 0, color: '#6b7280' }],
+  VWAP_CROSS:   [{ value: 0, color: '#6b7280' }],
+  VOLUME_RATIO: [{ value: 1, color: '#6b7280' }, { value: 1.5, color: '#10b981' }],
+  VP_POC_CROSS: [{ value: 0, color: '#f59e0b' }],
+  VP_VAH_CROSS: [{ value: 0, color: '#10b981' }],
+  VP_VAL_CROSS: [{ value: 0, color: '#ef4444' }],
 };
 
-const OSC_DOMAIN: Record<string, [number | 'auto', number | 'auto']> = {
-  RSI:       [0, 100],
-  STOCH:     [0, 100],
-  ADX:       [0, 100],
-  WILLIAMS_R:[-100, 0],
-  BBPCTB:    [0, 1.2],
+const BASE_OPTS = {
+  layout:          { background: { color: '#111827' }, textColor: '#9ca3af', fontSize: 11 },
+  grid:            { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
+  crosshair:       { mode: CrosshairMode.Normal },
+  rightPriceScale: { borderColor: '#374151' },
+  timeScale:       { borderColor: '#374151', timeVisible: false },
+  handleScroll: true,
+  handleScale:  true,
 };
 
-const OSC_MAIN_COLOR: Record<string, string> = {
-  RSI:       '#a78bfa',
-  STOCH:     '#38bdf8',
-  MACD:      '#fb923c',
-  CCI:       '#4ade80',
-  ADX:       '#f472b6',
-  WILLIAMS_R:'#fbbf24',
-  OBV:       '#34d399',
-  ATR:       '#818cf8',
-  BBPCTB:    '#f0abfc',
-  SMA_CROSS: '#f59e0b',
-  VWAP_CROSS:'#06b6d4',
-};
-const OSC_SIGNAL_COLOR = '#e2e8f0'; // white-ish for signal lines
-
-const getOverlayColor = (key: string): string => {
-  if (OVERLAY_COLORS[key]) return OVERLAY_COLORS[key];
-  if (key.startsWith('SMA_')) return '#f59e0b';   // amber — SMA_20, SMA_50, etc.
-  if (key === 'VWAP') return '#06b6d4';            // cyan
-  return '#a78bfa';
-};
-
-// Sync ID so all charts respond to the same hover event
-const SYNC_ID = 'backtest-chart';
-
-// ── Trade marker dots ─────────────────────────────────────────────────────────
-function EntryDot(props: { cx?: number; cy?: number }) {
-  const { cx = 0, cy = 0 } = props;
-  return (
-    <polygon
-      points={`${cx},${cy - 7} ${cx - 5},${cy + 3} ${cx + 5},${cy + 3}`}
-      fill="#10b981" stroke="#fff" strokeWidth={1}
-    />
-  );
-}
-function ExitDot(props: { cx?: number; cy?: number }) {
-  const { cx = 0, cy = 0 } = props;
-  return (
-    <polygon
-      points={`${cx},${cy + 7} ${cx - 5},${cy - 3} ${cx + 5},${cy - 3}`}
-      fill="#ef4444" stroke="#fff" strokeWidth={1}
-    />
-  );
-}
-
-// ── Shared tooltip style ──────────────────────────────────────────────────────
-const TOOLTIP_CONTENT_STYLE = {
-  backgroundColor: '#111827',
-  border: '1px solid #374151',
-  borderRadius: 6,
-  fontSize: 12,
-};
-
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function PriceChart({ priceData, indicators, trades }: Props) {
-  if (!priceData.length) return null;
+  const [chartHeight, setChartHeight] = useState(420);
 
-  // Split all indicator keys into overlays vs oscillators
-  const allKeys = Object.keys(indicators).filter(
-    (k) => k !== 'rsi' && k !== 'oversold' && k !== 'overbought',
-  );
-  const overlayKeys  = allKeys.filter((k) => !isOscillator(k));
-  const oscKeys      = allKeys.filter((k) => isOscillator(k));
+  const mainContainerRef = useRef<HTMLDivElement>(null);
+  const oscContainersRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const chartsRef        = useRef<IChartApi[]>([]);
 
-  // Build flat series map: key → { date → value }
-  // Also generate derived keys for signal/histogram sub-series
+  // Derived key lists — needed both in render (containers) and useEffect (charts)
+  const allKeys     = Object.keys(indicators).filter((k) => !['rsi', 'oversold', 'overbought'].includes(k));
+  const overlayKeys = allKeys.filter((k) => !isOscillator(k));
+  const oscKeys     = allKeys.filter((k) => isOscillator(k));
+
+  // Build date → value maps (+ signal / histogram sub-series)
   const seriesMaps: Record<string, Record<string, number>> = {};
   for (const key of allKeys) {
     seriesMaps[key] = {};
     for (const pt of indicators[key]) {
-      if (pt.value !== undefined)     seriesMaps[key][pt.date] = pt.value;
-      if (pt.signal !== undefined) {
-        const sigKey = `${key}_signal`;
-        seriesMaps[sigKey] ??= {};
-        seriesMaps[sigKey][pt.date] = pt.signal;
-      }
-      if (pt.histogram !== undefined) {
-        const histKey = `${key}_hist`;
-        seriesMaps[histKey] ??= {};
-        seriesMaps[histKey][pt.date] = pt.histogram;
-      }
+      if (!pt.date) continue;
+      if (pt.value     !== undefined) seriesMaps[key][pt.date]           = pt.value;
+      if (pt.signal    !== undefined) { const k = `${key}_signal`; (seriesMaps[k] ??= {})[pt.date] = pt.signal; }
+      if (pt.histogram !== undefined) { const k = `${key}_hist`;   (seriesMaps[k] ??= {})[pt.date] = pt.histogram; }
     }
   }
 
-  // Unified row array (single source of truth for all charts)
-  const chartData = priceData.map((p) => {
-    const row: Record<string, unknown> = { date: p.date, close: p.close };
-    for (const [seriesKey, map] of Object.entries(seriesMaps)) {
-      const v = map[p.date];
-      if (v !== undefined) row[seriesKey] = v;
+  useEffect(() => {
+    const mainEl = mainContainerRef.current;
+    if (!priceData.length || !mainEl) return;
+
+    // Destroy previous charts
+    chartsRef.current.forEach((c) => { try { c.remove(); } catch (_) {} });
+    chartsRef.current = [];
+
+    // ── Main chart ─────────────────────────────────────────────────────────
+    const mainChart = createChart(mainEl, { ...BASE_OPTS, width: mainEl.clientWidth, height: chartHeight });
+    chartsRef.current.push(mainChart);
+
+    // Candlestick
+    const candles = mainChart.addCandlestickSeries({
+      upColor: '#10b981', downColor: '#ef4444',
+      borderVisible: false, wickUpColor: '#10b981', wickDownColor: '#ef4444',
+    });
+    candles.setData(priceData.map((p) => ({ time: p.date as Time, open: p.open, high: p.high, low: p.low, close: p.close })));
+
+    // Trade markers
+    if (trades.length > 0) {
+      const markers = [
+        ...trades.map((t) => ({ time: t.entryDate as Time, position: 'belowBar' as const, color: '#10b981', shape: 'arrowUp'   as const, text: 'B' })),
+        ...trades.map((t) => ({ time: t.exitDate  as Time, position: 'aboveBar' as const, color: '#ef4444', shape: 'arrowDown' as const, text: 'S' })),
+      ].sort((a, b) => (a.time < b.time ? -1 : 1));
+      candles.setMarkers(markers);
     }
-    return row;
-  });
 
-  // Price chart Y domain — only price + overlay indicators
-  const priceValues = priceData.map((p) => p.close);
-  for (const key of overlayKeys) {
-    Object.values(seriesMaps[key] ?? {}).forEach((v) => priceValues.push(v));
-  }
-  const minY = Math.min(...priceValues) * 0.97;
-  const maxY = Math.max(...priceValues) * 1.03;
+    // Overlay indicator lines
+    overlayKeys.forEach((key, idx) => {
+      const line = mainChart.addLineSeries({ color: getOverlayColor(key, idx), lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+      const pts = Object.entries(seriesMaps[key] ?? {})
+        .map(([d, v]) => ({ time: d as Time, value: v }))
+        .sort((a, b) => (a.time < b.time ? -1 : 1));
+      line.setData(pts);
+    });
 
-  const hasOscillators = oscKeys.length > 0;
+    // ── Oscillator sub-charts ──────────────────────────────────────────────
+    const allCharts: IChartApi[] = [mainChart];
+
+    for (const key of oscKeys) {
+      const el = oscContainersRef.current.get(key);
+      if (!el) continue;
+
+      const chart = createChart(el, { ...BASE_OPTS, width: mainEl.clientWidth, height: 120 });
+      chartsRef.current.push(chart);
+      allCharts.push(chart);
+
+      const prefix   = getOscPrefix(key);
+      const color    = getOscColor(key);
+      const refLines = OSC_REF_LINES[prefix] ?? [];
+
+      // Reference lines
+      refLines.forEach((rl) => {
+        const s = chart.addLineSeries({ color: rl.color, lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        s.setData(priceData.map((p) => ({ time: p.date as Time, value: rl.value })));
+      });
+
+      // MACD histogram
+      const histKey = `${key}_hist`;
+      if (seriesMaps[histKey]) {
+        const hist = chart.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+        hist.setData(
+          Object.entries(seriesMaps[histKey])
+            .map(([d, v]) => ({ time: d as Time, value: v, color: v >= 0 ? '#10b98166' : '#ef444466' }))
+            .sort((a, b) => (a.time < b.time ? -1 : 1)),
+        );
+      }
+
+      // Main line
+      const mainLine = chart.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
+      mainLine.setData(
+        Object.entries(seriesMaps[key] ?? {})
+          .map(([d, v]) => ({ time: d as Time, value: v }))
+          .sort((a, b) => (a.time < b.time ? -1 : 1)),
+      );
+
+      // Signal line (Stochastic D / MACD signal)
+      const sigKey = `${key}_signal`;
+      if (seriesMaps[sigKey]) {
+        const sigLine = chart.addLineSeries({ color: '#e2e8f0', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false });
+        sigLine.setData(
+          Object.entries(seriesMaps[sigKey])
+            .map(([d, v]) => ({ time: d as Time, value: v }))
+            .sort((a, b) => (a.time < b.time ? -1 : 1)),
+        );
+      }
+    }
+
+    // ── Sync pan / zoom ────────────────────────────────────────────────────
+    let syncing = false;
+    allCharts.forEach((src) => {
+      src.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (syncing || !range) return;
+        syncing = true;
+        allCharts.forEach((dst) => { if (dst !== src) dst.timeScale().setVisibleLogicalRange(range); });
+        syncing = false;
+      });
+    });
+
+    // ── Responsive resize ──────────────────────────────────────────────────
+    const ro = new ResizeObserver(() => {
+      const w = mainContainerRef.current?.clientWidth;
+      if (!w) return;
+      allCharts.forEach((c) => c.applyOptions({ width: w }));
+    });
+    ro.observe(mainEl);
+
+    return () => {
+      ro.disconnect();
+      chartsRef.current.forEach((c) => { try { c.remove(); } catch (_) {} });
+      chartsRef.current = [];
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceData, indicators, trades, chartHeight]);
+
+  if (!priceData.length) return null;
 
   return (
     <div className="space-y-0">
-
-      {/* ── Price chart ─────────────────────────────────────────────────────── */}
-      <div className="h-60">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-            <XAxis
-              dataKey="date"
-              tick={{ fill: '#9ca3af', fontSize: 10 }}
-              tickLine={false}
-              interval="preserveStartEnd"
-              hide={hasOscillators}
-            />
-            <YAxis
-              domain={[minY, maxY]}
-              tick={{ fill: '#9ca3af', fontSize: 11 }}
-              tickLine={false}
-              tickFormatter={(v: number) => `$${v.toFixed(0)}`}
-              width={70}
-            />
-            <Tooltip
-              contentStyle={TOOLTIP_CONTENT_STYLE}
-              labelStyle={{ color: '#9ca3af' }}
-              formatter={(val, name) => {
-                const k = String(name);
-                return [`$${Number(val).toFixed(2)}`, OVERLAY_LABELS[k] ?? k];
-              }}
-            />
-
-            {/* Close price */}
-            <Line type="monotone" dataKey="close" stroke="#6b7280" strokeWidth={1.5} dot={false} legendType="none" />
-
-            {/* Overlay indicators */}
-            {overlayKeys.map((key) => (
-              <Line
-                key={key}
-                type="monotone"
-                dataKey={key}
-                stroke={getOverlayColor(key)}
-                strokeWidth={1.5}
-                dot={false}
-                connectNulls
-              />
-            ))}
-
-            {/* Trade entry markers */}
-            {trades.map((t, i) => (
-              <ReferenceDot key={`e${i}`} x={t.entryDate} y={t.entryPrice} r={0} shape={<EntryDot />} />
-            ))}
-            {/* Trade exit markers */}
-            {trades.map((t, i) => (
-              <ReferenceDot key={`x${i}`} x={t.exitDate} y={t.exitPrice} r={0} shape={<ExitDot />} />
-            ))}
-          </ComposedChart>
-        </ResponsiveContainer>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3 text-xs text-gray-500">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
+            Compra
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-red-400" />
+            Venda
+          </span>
+          {overlayKeys.map((k, i) => (
+            <span key={k} className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: getOverlayColor(k, i) }} />
+              <span>{k}</span>
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-600 mr-1">Altura:</span>
+          {([300, 420, 600, 800] as const).map((h) => (
+            <button key={h} onClick={() => setChartHeight(h)}
+              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                chartHeight === h
+                  ? 'bg-blue-600/30 border-blue-500 text-blue-300'
+                  : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {h === 300 ? 'P' : h === 420 ? 'M' : h === 600 ? 'G' : 'GG'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* ── Oscillator sub-charts ───────────────────────────────────────────── */}
-      {oscKeys.map((key, idx) => {
-        const prefix     = getPrefix(key);
-        const mainColor  = OSC_MAIN_COLOR[prefix] ?? '#a78bfa';
-        const refLines   = OSC_REF_LINES[prefix] ?? [];
-        const domain     = OSC_DOMAIN[prefix] ?? (['auto', 'auto'] as [string, string]);
-        const isLast     = idx === oscKeys.length - 1;
-        const signalKey  = `${key}_signal`;
-        const histKey    = `${key}_hist`;
-        const hasSignal  = Boolean(seriesMaps[signalKey]);
-        const hasHist    = Boolean(seriesMaps[histKey]);
-        const isMacd     = prefix === 'MACD';
+      {/* Charts */}
+      <div className="rounded-lg overflow-hidden border border-gray-800">
+        <div ref={mainContainerRef} />
 
-        return (
+        {oscKeys.map((key) => (
           <div key={key} className="border-t border-gray-800">
-            {/* Sub-chart label row */}
-            <div className="flex items-center gap-2 px-2 pt-1.5 pb-0.5">
-              <span className="text-[10px] font-mono font-semibold uppercase tracking-wide" style={{ color: mainColor }}>
+            <div className="px-3 pt-1.5 pb-0.5">
+              <span className="text-[10px] font-mono font-semibold uppercase tracking-wide" style={{ color: getOscColor(key) }}>
                 {key}
               </span>
-              {hasSignal && !isMacd && (
-                <span className="text-[9px] text-gray-500">K/D</span>
-              )}
-              {refLines.map((rl) => (
-                <span key={rl.value} className="text-[9px]" style={{ color: rl.color }}>
-                  {rl.label ?? rl.value}
-                </span>
-              ))}
             </div>
-
-            <div className="h-24">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#9ca3af', fontSize: 10 }}
-                    tickLine={false}
-                    interval="preserveStartEnd"
-                    hide={!isLast}
-                  />
-                  <YAxis
-                    domain={domain}
-                    tick={{ fill: '#9ca3af', fontSize: 10 }}
-                    tickLine={false}
-                    tickFormatter={(v: number) => {
-                      const abs = Math.abs(v);
-                      if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-                      if (abs >= 1_000)     return `${(v / 1_000).toFixed(1)}k`;
-                      return v.toFixed(1);
-                    }}
-                    width={70}
-                  />
-                  <Tooltip
-                    contentStyle={TOOLTIP_CONTENT_STYLE}
-                    labelStyle={{ color: '#9ca3af' }}
-                    formatter={(val, name) => {
-                      const k = String(name);
-                      const label = k === signalKey ? `${key} Signal` : k === histKey ? `${key} Hist` : key;
-                      return [Number(val).toFixed(2), label];
-                    }}
-                  />
-
-                  {/* Reference lines (oversold/overbought/zero) */}
-                  {refLines.map((rl) => (
-                    <ReferenceLine
-                      key={rl.value}
-                      y={rl.value}
-                      stroke={rl.color}
-                      strokeDasharray="4 2"
-                      strokeWidth={1}
-                    />
-                  ))}
-
-                  {/* MACD histogram as bars */}
-                  {isMacd && hasHist && (
-                    <Bar
-                      dataKey={histKey}
-                      fill="#6b7280"
-                      opacity={0.5}
-                      isAnimationActive={false}
-                    />
-                  )}
-
-                  {/* Main indicator line */}
-                  <Line
-                    type="monotone"
-                    dataKey={key}
-                    stroke={mainColor}
-                    strokeWidth={1.5}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-
-                  {/* Signal line (MACD signal / Stochastic D) */}
-                  {hasSignal && (
-                    <Line
-                      type="monotone"
-                      dataKey={signalKey}
-                      stroke={OSC_SIGNAL_COLOR}
-                      strokeWidth={1}
-                      dot={false}
-                      connectNulls
-                      strokeDasharray="3 2"
-                      isAnimationActive={false}
-                    />
-                  )}
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
+            <div ref={(el) => {
+              if (el) oscContainersRef.current.set(key, el);
+              else    oscContainersRef.current.delete(key);
+            }} />
           </div>
-        );
-      })}
-
-      {/* ── Entry / Exit legend ─────────────────────────────────────────────── */}
-      <div className="flex gap-4 justify-center pt-2 text-xs text-gray-400">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-l-transparent border-r-transparent border-b-green-400" />
-          Entry
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-0 h-0 border-l-[5px] border-r-[5px] border-t-[8px] border-l-transparent border-r-transparent border-t-red-400" />
-          Exit
-        </span>
+        ))}
       </div>
     </div>
   );

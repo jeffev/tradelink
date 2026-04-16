@@ -34,9 +34,13 @@ function formatIndicatorTag(ind: { name: string; params: Record<string, unknown>
     case 'ATR':        return `ATR ${p.period ?? 14}`;
     case 'OBV':        return 'OBV';
     case 'BBPCTB':     return `BB%B ${p.period ?? 20}`;
-    case 'SMA_CROSS':  return `SMA ${p.period ?? 20}`;
-    case 'VWAP_CROSS': return 'VWAP';
-    default:           return ind.name;
+    case 'SMA_CROSS':    return `SMA ${p.period ?? 20}`;
+    case 'VWAP_CROSS':   return 'VWAP';
+    case 'VOLUME_RATIO': return `VolRatio ${p.period ?? 20}`;
+    case 'VP_POC_CROSS': return `VP POC (${p.period ?? 'month'})`;
+    case 'VP_VAH_CROSS': return `VP VAH (${p.period ?? 'month'})`;
+    case 'VP_VAL_CROSS': return `VP VAL (${p.period ?? 'month'})`;
+    default:             return ind.name;
   }
 }
 
@@ -59,8 +63,12 @@ const OSCILLATOR_INDICATORS = [
   { id: 'ATR',        label: 'ATR',         defaultPeriod: 14, entryOp: '>',  entryVal: '1',    exitOp: '<',  exitVal: '0.5',  hint: '> valor = volatilidade alta (em $)',    params: (p: number) => ({ period: p }),                               key: (p: number) => `ATR_${p}` },
   { id: 'OBV',        label: 'OBV',         defaultPeriod: 0,  entryOp: '>',  entryVal: '0',    exitOp: '<',  exitVal: '0',    hint: '> 0 fluxo comprador · < 0 vendedor',   params: (_p: number) => ({}),                                         key: (_p: number) => `OBV` },
   { id: 'BBPCTB',     label: 'BB %B',       defaultPeriod: 20, entryOp: '<',  entryVal: '0.2',  exitOp: '>',  exitVal: '0.8',  hint: '< 0.2 banda inferior · > 0.8 superior', params: (p: number) => ({ period: p }),                               key: (p: number) => `BBPCTB_${p}` },
-  { id: 'SMA_CROSS',  label: 'SMA',         defaultPeriod: 20, entryOp: '>',  entryVal: '0',    exitOp: '<',  exitVal: '0',    hint: '> 0 preço acima da SMA (compra) · < 0 abaixo (venda)',  params: (p: number) => ({ period: p }),                               key: (p: number) => `SMA_CROSS_${p}` },
-  { id: 'VWAP_CROSS', label: 'VWAP',        defaultPeriod: 0,  entryOp: '>',  entryVal: '0',    exitOp: '<',  exitVal: '0',    hint: '> 0 preço acima do VWAP (compra) · < 0 abaixo (venda)', params: (_p: number) => ({}),                                         key: (_p: number) => `VWAP_CROSS` },
+  { id: 'SMA_CROSS',    label: 'SMA',         defaultPeriod: 20, entryOp: '>',  entryVal: '0',   exitOp: '<',  exitVal: '0',   hint: '> 0 preço acima da SMA (compra) · < 0 abaixo (venda)',           params: (p: number) => ({ period: p }),  key: (p: number) => `SMA_CROSS_${p}` },
+  { id: 'VWAP_CROSS',  label: 'VWAP',        defaultPeriod: 0,  entryOp: '>',  entryVal: '0',   exitOp: '<',  exitVal: '0',   hint: '> 0 preço acima do VWAP (compra) · < 0 abaixo (venda)',          params: (_p: number) => ({}),            key: (_p: number) => `VWAP_CROSS` },
+  { id: 'VOLUME_RATIO',label: 'Vol Ratio',   defaultPeriod: 20, entryOp: '>',  entryVal: '1.5', exitOp: '<',  exitVal: '0.8', hint: '> 1.5 volume acima da média (confirma sinal) · < 0.8 volume fraco', params: (p: number) => ({ period: p }),  key: (p: number) => `VOLUME_RATIO_${p}` },
+  { id: 'VP_POC_CROSS',label: 'VP POC',      defaultPeriod: 0,  entryOp: '>',  entryVal: '0',   exitOp: '<',  exitVal: '0',   hint: 'preço cruza acima do POC (compra) · abaixo (venda)',               params: (_p: number) => ({}),            key: (_p: number) => `VP_POC_CROSS` },
+  { id: 'VP_VAH_CROSS',label: 'VP VAH',      defaultPeriod: 0,  entryOp: '>',  entryVal: '0',   exitOp: '<',  exitVal: '0',   hint: 'preço cruza acima do VAH (breakout) · abaixo (venda)',             params: (_p: number) => ({}),            key: (_p: number) => `VP_VAH_CROSS` },
+  { id: 'VP_VAL_CROSS',label: 'VP VAL',      defaultPeriod: 0,  entryOp: '<',  entryVal: '0',   exitOp: '>',  exitVal: '0',   hint: 'preço cruza abaixo do VAL (suporte rompido) · acima (compra)',     params: (_p: number) => ({}),            key: (_p: number) => `VP_VAL_CROSS` },
 ] as const;
 
 type OscillatorId = typeof OSCILLATOR_INDICATORS[number]['id'];
@@ -85,6 +93,7 @@ interface FormState {
   strategyIndicators: StrategyIndicator[];
   entryLogic: 'AND' | 'OR';
   exitLogic: 'AND' | 'OR';
+  vpPeriod: string;
 }
 
 const INITIAL_FORM: FormState = {
@@ -98,18 +107,30 @@ const INITIAL_FORM: FormState = {
   strategyIndicators: [],
   entryLogic: 'AND',
   exitLogic: 'AND',
+  vpPeriod: 'month',
 };
 
 
+const VP_CROSS_IDS = ['VP_POC_CROSS', 'VP_VAH_CROSS', 'VP_VAL_CROSS'] as string[];
+const VP_PERIODS = [
+  { value: 'week',    label: 'Sem' },
+  { value: 'month',   label: 'Mês' },
+  { value: 'quarter', label: 'Trim' },
+  { value: 'year',    label: 'Ano' },
+  { value: 'full',    label: 'Tudo' },
+];
+
 // ─── Multi-indicator strategy builder ────────────────────────────────────────
 function MultiIndicatorBuilder({
-  value, entryLogic, exitLogic, onChange, onLogicChange,
+  value, entryLogic, exitLogic, vpPeriod, onChange, onLogicChange, onVpPeriodChange,
 }: {
   value: StrategyIndicator[];
   entryLogic: 'AND' | 'OR';
   exitLogic: 'AND' | 'OR';
+  vpPeriod: string;
   onChange: (v: StrategyIndicator[]) => void;
   onLogicChange: (entry: 'AND' | 'OR', exit: 'AND' | 'OR') => void;
+  onVpPeriodChange: (p: string) => void;
 }) {
   const toggle = (def: typeof OSCILLATOR_INDICATORS[number]) => {
     if (value.some((v) => v.id === def.id)) {
@@ -122,9 +143,13 @@ function MultiIndicatorBuilder({
     onChange(value.map((v) => v.id === id ? { ...v, ...patch } : v));
 
   const OPS = ['<', '<=', '>', '>=', '='];
-  const showPeriod = (id: OscillatorId) => !(['MACD', 'OBV', 'VWAP_CROSS'] as string[]).includes(id);
+  const showPeriod = (id: OscillatorId) =>
+    !(['MACD', 'OBV', 'VWAP_CROSS', 'VP_POC_CROSS', 'VP_VAH_CROSS', 'VP_VAL_CROSS'] as string[]).includes(id);
   // Crossover indicators have implicit fixed conditions (> 0 = above, < 0 = below)
-  const isCrossover = (id: OscillatorId) => (['SMA_CROSS', 'VWAP_CROSS'] as string[]).includes(id);
+  const isCrossover = (id: OscillatorId) =>
+    (['SMA_CROSS', 'VWAP_CROSS', 'VP_POC_CROSS', 'VP_VAH_CROSS', 'VP_VAL_CROSS'] as string[]).includes(id);
+
+  const hasVpCross = value.some((v) => VP_CROSS_IDS.includes(v.id));
 
   return (
     <div className="space-y-3">
@@ -143,6 +168,25 @@ function MultiIndicatorBuilder({
           );
         })}
       </div>
+
+      {/* VP period selector — shown when any VP cross indicator is active */}
+      {hasVpCross && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-900/20 border border-amber-800/40 rounded-lg">
+          <span className="text-[11px] text-amber-400/80 font-medium whitespace-nowrap">Período VP:</span>
+          <div className="flex gap-1">
+            {VP_PERIODS.map((p) => (
+              <button key={p.value} type="button" onClick={() => onVpPeriodChange(p.value)}
+                className={`px-2 py-0.5 text-[11px] rounded border transition-colors ${vpPeriod === p.value
+                  ? 'bg-amber-600/30 border-amber-500 text-amber-300'
+                  : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300'}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] text-gray-600 italic">janela de cálculo do Volume Profile</span>
+        </div>
+      )}
 
       {/* Cards per indicator */}
       {value.map((si) => {
@@ -173,7 +217,9 @@ function MultiIndicatorBuilder({
             {/* Conditions row — hidden for crossover indicators (logic is always close vs line) */}
             {isCrossover(si.id) && (
               <p className="text-[10px] text-blue-400/70 italic">
-                Compra quando o preço cruza acima · Venda quando cruza abaixo
+                {VP_CROSS_IDS.includes(si.id)
+                  ? `Compra quando preço cruza acima do nível VP · Venda quando cruza abaixo · Período: ${vpPeriod}`
+                  : 'Compra quando o preço cruza acima · Venda quando cruza abaixo'}
               </p>
             )}
             {!isCrossover(si.id) && (
@@ -357,7 +403,11 @@ export default function BacktestList() {
     try {
       const indicatorList = form.strategyIndicators.map((si) => {
         const def = OSCILLATOR_INDICATORS.find((d) => d.id === si.id)!;
-        return { name: si.id, params: def.params(si.period) };
+        const baseParams = def.params(si.period);
+        const params = VP_CROSS_IDS.includes(si.id)
+          ? { ...baseParams, period: form.vpPeriod }
+          : baseParams;
+        return { name: si.id, params };
       });
 
       const payload: CreateBacktestPayload = {
@@ -581,8 +631,10 @@ export default function BacktestList() {
               value={form.strategyIndicators}
               entryLogic={form.entryLogic}
               exitLogic={form.exitLogic}
+              vpPeriod={form.vpPeriod}
               onChange={(strategyIndicators) => setForm({ ...form, strategyIndicators })}
               onLogicChange={(entryLogic, exitLogic) => setForm({ ...form, entryLogic, exitLogic })}
+              onVpPeriodChange={(vpPeriod) => setForm({ ...form, vpPeriod })}
             />
           </div>
 

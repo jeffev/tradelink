@@ -212,7 +212,7 @@ export interface PricePoint {
 }
 
 export interface IndicatorPoint {
-  date: string;
+  date?: string;
   value?: number;
   // MACD / Stochastic secondary lines
   signal?: number;
@@ -226,6 +226,16 @@ export interface IndicatorPoint {
   pivot?: number;
   s1?: number;
   s2?: number;
+  // Volume Profile — meta record (first element, type === 'meta')
+  type?: 'meta' | 'bin';
+  poc?: number;
+  vah?: number;
+  val?: number;
+  // Volume Profile — bin records (type === 'bin')
+  price?: number;
+  volume_pct?: number;
+  is_hvn?: boolean;
+  is_lvn?: boolean;
 }
 
 export interface BacktestResults {

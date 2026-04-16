@@ -14,12 +14,34 @@ export interface CalculateIndicatorsPayload {
 }
 
 export interface IndicatorPoint {
-  date: string;
-  value: number;
+  date?: string;
+  value?: number;
   signal?: number;
   histogram?: number;
   upper?: number;
   lower?: number;
+  // Pivot Points
+  r2?: number;
+  r1?: number;
+  pivot?: number;
+  s1?: number;
+  s2?: number;
+  // Ichimoku
+  tenkan?: number;
+  kijun?: number;
+  senkou_a?: number;
+  senkou_b?: number;
+  chikou?: number;
+  // Volume Profile — meta record (type === 'meta')
+  type?: 'meta' | 'bin';
+  poc?: number;
+  vah?: number;
+  val?: number;
+  // Volume Profile — bin record (type === 'bin')
+  price?: number;
+  volume_pct?: number;
+  is_hvn?: boolean;
+  is_lvn?: boolean;
 }
 
 export interface CalculateIndicatorsResult {

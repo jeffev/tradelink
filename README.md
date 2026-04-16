@@ -15,9 +15,12 @@ Plataforma de análise e gestão de trading — diário de trades, backtesting c
 - Filtros e histórico completo
 
 **Backtesting**
-- Estratégia multi-indicador: combine RSI, MACD, Stochastic, CCI, ADX, Williams %R
-- Condições customizáveis de entrada e saída por indicador
-- Gráfico de preço com marcadores de operação + painéis sincronizados por oscilador
+- Estratégia multi-indicador: combine RSI, MACD, Stochastic, CCI, ADX, Williams %R, OBV, ATR, BB %B, SMA, VWAP, Volume Ratio, VP POC/VAH/VAL Cross
+- Condições customizáveis de entrada e saída por indicador (operador + valor)
+- Filtro de volume: Volume Ratio (relativo à SMA) confirma ou filtra sinais
+- Condições de Volume Profile: cruzamento do preço com POC, VAH ou VAL por período (semanal/mensal/trimestral)
+- Gráfico de velas (candlestick) com zoom/pan, marcadores de compra/venda e painéis de osciladores sincronizados
+- Selector de altura do gráfico (P/M/G/GG)
 - Métricas: retorno total, anualizado, drawdown máximo, Sharpe, Calmar, win rate, profit factor
 - Comparação de múltiplos backtests
 
@@ -27,8 +30,10 @@ Plataforma de análise e gestão de trading — diário de trades, backtesting c
 - Gráfico comparativo de crescimento patrimonial + custo médio por estratégia
 
 **Indicadores Técnicos**
-- 15 indicadores: SMA, EMA, BB, VWAP, SAR, Pivot Points, RSI, MACD, ATR, Stochastic, CCI, ADX, Williams %R, OBV, Ichimoku
-- Visualização em chart com painéis separados para osciladores
+- 16 indicadores: SMA, EMA, BB, VWAP, SAR, Pivot Points, RSI, MACD, ATR, Stochastic, CCI, ADX, Williams %R, OBV, Ichimoku, Volume Profile (períodos: semanal/mensal/trimestral/anual)
+- Gráfico TradingView (lightweight-charts): candlestick, zoom/pan, painéis de osciladores sincronizados
+- Volume Profile com step lines de POC, VAH e VAL por janela de tempo configurável
+- Selector de altura do gráfico (P/M/G/GG)
 
 **Scanner & Alertas**
 - Filtros por condições de indicadores em múltiplos tickers
@@ -41,7 +46,7 @@ Plataforma de análise e gestão de trading — diário de trades, backtesting c
 | Camada | Tecnologia |
 |--------|-----------|
 | Backend API | NestJS + TypeORM + PostgreSQL |
-| Frontend | React + Vite + TailwindCSS + Recharts |
+| Frontend | React + Vite + TailwindCSS + lightweight-charts (TradingView OSS) |
 | Engine de Backtesting | Python FastAPI + pandas + yfinance |
 | Fila de jobs | BullMQ + Redis |
 | Banco (produção) | Neon (PostgreSQL serverless) |
@@ -157,7 +162,7 @@ WORKER_URL=http://localhost:8000
 │  Python FastAPI Worker  →  tradelink-worker.onrender.com            │
 │  • /run-backtest  — backtester.py + pandas                          │
 │  • /run-dca       — dca_engine.py                                   │
-│  • /calculate-indicators — indicators.py (15 indicadores)           │
+│  • /calculate-indicators — indicators.py (16 indicadores)           │
 │  • /scan          — scanner.py + yfinance                           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -242,7 +247,7 @@ tradelink/
 │   ├── frontend/              # React + Vite
 │   │   └── src/
 │   │       ├── pages/         # Routes (Backtests, DCA, Trades…)
-│   │       ├── components/    # UI + Charts (Recharts)
+│   │       ├── components/    # UI + Charts (lightweight-charts)
 │   │       ├── services/      # API clients
 │   │       └── types/         # TypeScript interfaces
 │   │
