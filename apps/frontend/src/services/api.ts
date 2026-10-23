@@ -29,3 +29,10 @@ api.interceptors.response.use(
 );
 
 export default api;
+
+// The free Render backend sleeps when idle and takes ~30s to wake up.
+// Pinging it as soon as the app loads overlaps that delay with the time
+// the visitor spends reading the landing page or typing their login.
+export function wakeUpBackend(): void {
+  api.get('/health').catch(() => undefined);
+}
