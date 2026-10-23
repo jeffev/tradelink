@@ -2,7 +2,7 @@
 
 Plataforma de análise e gestão de trading — diário de trades, backtesting com múltiplos indicadores, simulação de DCA e scanner de mercado.
 
-**Demo em produção:** [tradelink-nine.vercel.app](https://tradelink-nine.vercel.app)
+**Demo em produção:** [tradelink.jeffersonvalandro.com.br](https://tradelink.jeffersonvalandro.com.br)
 
 ---
 
