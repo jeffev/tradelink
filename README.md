@@ -4,6 +4,8 @@ Plataforma de análise e gestão de trading — diário de trades, backtesting c
 
 **Demo em produção:** [tradelink.jeffersonvalandro.com.br](https://tradelink.jeffersonvalandro.com.br)
 
+Na demo, **Entrar como visitante** abre uma conta de exemplo sem cadastro: ~100 trades com cotações reais, estratégias, backtests, simulações de DCA, filtros e alertas. A conta é apagada em 24 horas. Para desligar em outro servidor, use `DEMO_ENABLED=false` no backend.
+
 ---
 
 ## Funcionalidades

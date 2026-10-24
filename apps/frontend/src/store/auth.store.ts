@@ -8,6 +8,7 @@ interface AuthState {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
+  enterDemo: () => Promise<void>;
   logout: () => void;
   init: () => void;
 }
@@ -47,6 +48,18 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true });
     try {
       const response = await authService.register(email, password, firstName, lastName);
+      localStorage.setItem('access_token', response.access_token);
+      localStorage.setItem('user', JSON.stringify(response.user));
+      set({ user: response.user, isAuthenticated: true });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  enterDemo: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await authService.demo();
       localStorage.setItem('access_token', response.access_token);
       localStorage.setItem('user', JSON.stringify(response.user));
       set({ user: response.user, isAuthenticated: true });

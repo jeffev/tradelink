@@ -17,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MarketDataService } from './market-data.service';
+import { AdminGuard } from '../common/guards/admin.guard';
 import { FetchCandlesDto } from './dtos/market-data.dto';
 
 @ApiTags('market-data')
@@ -78,7 +79,9 @@ export class MarketDataController {
     return this.marketDataService.getCandles(symbol, interval, startDate, endDate);
   }
 
+  // Tickers and candles are shared by every user.
   @Delete('tickers/:symbol')
+  @UseGuards(AdminGuard)
   deleteTicker(@Param('symbol') symbol: string) {
     return this.marketDataService.deleteTicker(symbol);
   }

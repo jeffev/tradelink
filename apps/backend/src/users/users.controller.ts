@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request }
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, UpdateProfileDto, UserResponseDto } from './dtos/user.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../common/guards/admin.guard';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -19,21 +20,25 @@ export class UsersController {
   }
 
   @Post()
+  @UseGuards(AdminGuard)
   async create(@Body() createUserDto: CreateUserDto): Promise<UserResponseDto> {
     return this.usersService.create(createUserDto);
   }
 
   @Get()
+  @UseGuards(AdminGuard)
   async findAll(): Promise<UserResponseDto[]> {
     return this.usersService.findAll();
   }
 
   @Get(':id')
+  @UseGuards(AdminGuard)
   async findOne(@Param('id') id: string): Promise<UserResponseDto> {
     return this.usersService.findOne(id);
   }
 
   @Patch(':id')
+  @UseGuards(AdminGuard)
   async update(
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserDto,
@@ -42,6 +47,7 @@ export class UsersController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminGuard)
   async remove(@Param('id') id: string): Promise<void> {
     return this.usersService.remove(id);
   }

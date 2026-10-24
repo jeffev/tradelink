@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import type { AxiosError } from 'axios';
 import type { ApiError } from '@/types';
 import Button from '@/components/UI/Button';
+import DemoButton from '@/components/Auth/DemoButton';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -59,6 +60,13 @@ export default function Login() {
             Entrar
           </Button>
         </form>
+
+        <div className="mt-4 bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+          <p className="text-xs text-gray-400 mb-3">
+            Só quer conhecer? Entre numa conta de exemplo, sem cadastro.
+          </p>
+          <DemoButton className="w-full py-2" />
+        </div>
 
         <p className="text-center text-sm text-gray-500 mt-4">
           Não tem conta?{' '}

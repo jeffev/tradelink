@@ -17,6 +17,7 @@ import { DCAModule } from './dca/dca.module';
 import { IndicatorsModule } from './indicators/indicators.module';
 import { FiltersModule } from './filters/filters.module';
 import { AlertsModule } from './alerts/alerts.module';
+import { DemoModule } from './demo/demo.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { AlertsModule } from './alerts/alerts.module';
     IndicatorsModule,
     FiltersModule,
     AlertsModule,
+    DemoModule,
   ],
   controllers: [AppController],
   providers: [AppService],

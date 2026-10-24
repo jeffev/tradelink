@@ -28,7 +28,8 @@ export class AuthService {
   }
 
   async register(createUserDto: CreateUserDto) {
-    const user = await this.usersService.createAndReturn(createUserDto);
+    // Self sign-up never chooses its own role.
+    const user = await this.usersService.createAndReturn({ ...createUserDto, role: UserRole.TRADER });
     return this.buildAuthResponse(user);
   }
 

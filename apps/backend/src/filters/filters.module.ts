@@ -9,5 +9,6 @@ import { FiltersController } from './filters.controller';
   imports: [TypeOrmModule.forFeature([Filter, FilterResult])],
   providers: [FiltersService],
   controllers: [FiltersController],
+  exports: [FiltersService],
 })
 export class FiltersModule {}

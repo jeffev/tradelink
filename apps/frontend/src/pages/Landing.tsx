@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth.store';
+import DemoButton from '@/components/Auth/DemoButton';
 
 const FEATURES = [
   {
@@ -114,6 +115,7 @@ export default function Landing() {
         </p>
         {!isAuthenticated && (
           <div className="flex items-center justify-center gap-4 flex-wrap">
+            <DemoButton className="px-8 py-3" />
             <Link
               to="/register"
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-xl transition-colors text-sm"
