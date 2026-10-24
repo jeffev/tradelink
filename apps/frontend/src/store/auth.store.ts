@@ -13,9 +13,24 @@ interface AuthState {
   init: () => void;
 }
 
+// Read synchronously: if this waited for an effect, ProtectedRoute would
+// redirect to /login on every page reload before the session was restored.
+function readSession(): User | null {
+  const token = localStorage.getItem('access_token');
+  const userRaw = localStorage.getItem('user');
+  if (!token || !userRaw) return null;
+  try {
+    return JSON.parse(userRaw) as User;
+  } catch {
+    return null;
+  }
+}
+
+const initialUser = readSession();
+
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  isAuthenticated: false,
+  user: initialUser,
+  isAuthenticated: initialUser !== null,
   isLoading: false,
 
   init: () => {
