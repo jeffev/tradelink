@@ -485,7 +485,7 @@ export class DemoService implements OnApplicationBootstrap {
     for (const t of DEMO_TICKERS)
       bars.set(t.symbol, await this.loadBars(t, dice));
 
-    const trades = this.buildTrades(userId, dice, bars, strategyIds);
+    const trades = this.pickJournal(userId, bars, strategyIds);
     for (let i = 0; i < trades.length; i += 50) {
       await this.trades.save(this.trades.create(trades.slice(i, i + 50)));
     }
@@ -499,6 +499,55 @@ export class DemoService implements OnApplicationBootstrap {
     await this.seedBacktests(userId, strategyIds);
     await this.seedDCA(userId);
     await this.seedFilters(userId);
+  }
+
+  /**
+   * The outcome depends on the real candles of the day, so a fixed seed can
+   * yield a losing account. Tries a few seeds and keeps the first journal that
+   * tells the intended story: modestly profitable overall, with the trades that
+   * followed the plan winning and the ones that broke it losing.
+   */
+  private pickJournal(
+    userId: string,
+    bars: Map<string, Bar[]>,
+    strategyIds: Map<string, string>,
+  ): Partial<Trade>[] {
+    let fallback: Partial<Trade>[] = [];
+    let fallbackPnl = -Infinity;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const trades = this.buildTrades(
+        userId,
+        new Dice(mulberry32(20261024 + attempt)),
+        bars,
+        strategyIds,
+      );
+      const pnl = (t: Partial<Trade>) =>
+        t.exitPrice == null
+          ? 0
+          : (t.side === TradeSide.BUY ? 1 : -1) *
+            (Number(t.exitPrice) - Number(t.entryPrice)) *
+            Number(t.quantity);
+      const total = trades.reduce((sum, t) => sum + pnl(t), 0);
+      const followed = trades
+        .filter((t) => t.followedStrategy === true)
+        .reduce((sum, t) => sum + pnl(t), 0);
+      const broke = trades
+        .filter((t) => t.followedStrategy === false)
+        .reduce((sum, t) => sum + pnl(t), 0);
+      if (
+        total > CAPITAL * 0.03 &&
+        total < CAPITAL * 0.12 &&
+        followed > 0 &&
+        broke < 0
+      ) {
+        return trades;
+      }
+      if (total > fallbackPnl) {
+        fallback = trades;
+        fallbackPnl = total;
+      }
+    }
+    return fallback;
   }
 
   private buildTrades(
