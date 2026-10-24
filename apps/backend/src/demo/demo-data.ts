@@ -429,7 +429,7 @@ export const DEMO_FILTERS: DemoFilter[] = [
   {
     name: 'Esticado demais',
     description:
-      'IFR acima de 75 ou preço muito acima da SMA 20 — cuidado com novas compras.',
+      'IFR acima de 75 ou estocástico acima de 90 — cuidado com novas compras.',
     logic: 'OR',
     conditions: [
       { indicator: 'RSI', params: { period: 14 }, operator: 'gt', value: 75 },
