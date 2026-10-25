@@ -58,8 +58,14 @@ export class DCAProcessor extends WorkerHost {
     } catch (err: unknown) {
       dcaJob.status = DCAStatus.FAILED;
       if (axios.isAxiosError(err)) {
+        const detail = (err.response?.data as { detail?: unknown })?.detail;
+        // FastAPI validation errors come as a list; network errors carry no detail.
         dcaJob.errorMessage =
-          (err.response?.data as { detail?: string })?.detail ?? err.message;
+          typeof detail === 'string'
+            ? detail
+            : detail
+              ? JSON.stringify(detail)
+              : 'Market data worker unavailable';
       } else {
         dcaJob.errorMessage = (err as Error).message;
       }

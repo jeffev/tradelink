@@ -2,14 +2,22 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { BacktestJob, BacktestStatus } from './backtest-job.entity';
 import { CreateBacktestDto } from './dtos/backtesting.dto';
 import { UserRole } from '../users/user.entity';
+import { assertDateRange } from '../shared/constants/market';
+
+// Jobs share one worker queue: cap how many a single user can have waiting.
+// Jobs older than STALE_JOB_MS are ignored, so a crashed run cannot lock anyone out.
+const STALE_JOB_MS = 2 * 60 * 60 * 1000;
+const MAX_JOBS_IN_FLIGHT = 20;
 
 @Injectable()
 export class BacktestingService {
@@ -20,6 +28,21 @@ export class BacktestingService {
   ) {}
 
   async create(userId: string, dto: CreateBacktestDto): Promise<BacktestJob[]> {
+    assertDateRange(dto.startDate, dto.endDate);
+    const inFlight = await this.jobRepo.count({
+      where: {
+        userId,
+        status: In([BacktestStatus.PENDING, BacktestStatus.RUNNING]),
+        createdAt: MoreThan(new Date(Date.now() - STALE_JOB_MS)),
+      },
+    });
+    if (inFlight + dto.symbols.length > MAX_JOBS_IN_FLIGHT) {
+      throw new HttpException(
+        `At most ${MAX_JOBS_IN_FLIGHT} backtests can be queued at once. Wait for the current ones to finish.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const jobs = await Promise.all(
       dto.symbols.map(async (symbol) => {
         const job = this.jobRepo.create({

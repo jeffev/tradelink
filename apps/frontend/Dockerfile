@@ -14,6 +14,9 @@ RUN npm run build --workspace=apps/frontend
 # ---- Production image (nginx) ----
 FROM nginx:alpine AS runner
 
+# Pick up patched Alpine packages (libssl3/libcrypto3, ...).
+RUN apk upgrade --no-cache
+
 COPY --from=builder /app/apps/frontend/dist /usr/share/nginx/html
 
 # SPA fallback: serve index.html for all routes

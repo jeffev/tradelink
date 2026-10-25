@@ -6,17 +6,23 @@ import {
   IsNumber,
   IsObject,
   IsArray,
+  IsIn,
+  IsUUID,
   ArrayMinSize,
   ArrayMaxSize,
+  Matches,
+  MaxLength,
   Min,
   Max,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BacktestStrategyType } from '../backtest-job.entity';
+import { SYMBOL_MESSAGE, SYMBOL_PATTERN, TIMEFRAMES } from '../../shared/constants/market';
 
 export class IndicatorConfigDto {
   @ApiProperty({ example: 'SMA' })
   @IsString()
+  @MaxLength(40)
   name: string;
 
   @ApiPropertyOptional({ example: { period: 20 } })
@@ -31,6 +37,7 @@ export class CreateBacktestDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(10)
   @IsString({ each: true })
+  @Matches(SYMBOL_PATTERN, { each: true, message: SYMBOL_MESSAGE })
   symbols: string[];
 
   @ApiProperty({ enum: BacktestStrategyType, example: BacktestStrategyType.SMA_CROSSOVER })
@@ -54,6 +61,7 @@ export class CreateBacktestDto {
   @IsOptional()
   @IsNumber()
   @Min(100)
+  @Max(1_000_000_000)
   initialCapital?: number;
 
   @ApiPropertyOptional({ example: 0.001, description: 'Brokerage rate as decimal (e.g. 0.001 = 0.1%)' })
@@ -69,12 +77,12 @@ export class CreateBacktestDto {
     description: 'Candle timeframe',
   })
   @IsOptional()
-  @IsString()
+  @IsIn(TIMEFRAMES)
   timeframe?: string;
 
   @ApiPropertyOptional({ example: 'strategy-uuid' })
   @IsOptional()
-  @IsString()
+  @IsUUID()
   strategyId?: string;
 
   @ApiPropertyOptional({ type: [IndicatorConfigDto], description: 'List of indicators to calculate' })

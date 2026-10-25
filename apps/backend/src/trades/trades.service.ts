@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Trade, TradeStatus } from './trade.entity';
 import { CreateTradeDto, CloseTradeDto, UpdateTradeDto, TradeResponseDto } from './dtos/trade.dto';
 import { UserRole } from '../users/user.entity';
+import { Strategy } from '../strategies/strategy.entity';
 
 @Injectable()
 export class TradesService {
@@ -13,6 +14,7 @@ export class TradesService {
   ) {}
 
   async create(userId: string, dto: CreateTradeDto): Promise<TradeResponseDto> {
+    await this.assertOwnStrategy(dto.strategyId, userId);
     const trade = this.tradeRepository.create({
       userId,
       ticker:         dto.ticker.toUpperCase(),
@@ -63,6 +65,7 @@ export class TradesService {
     if (!trade) throw new NotFoundException('Trade not found');
     if (role !== UserRole.ADMIN && trade.userId !== userId) throw new ForbiddenException('Access denied');
     if (trade.status === TradeStatus.CLOSED) throw new BadRequestException('Trade is already closed');
+    await this.assertOwnStrategy(dto.strategyId, trade.userId);
 
     trade.exitPrice      = dto.exitPrice;
     trade.exitAt         = dto.exitAt ? new Date(dto.exitAt) : new Date();
@@ -85,6 +88,7 @@ export class TradesService {
     const trade = await this.tradeRepository.findOne({ where: { id } });
     if (!trade) throw new NotFoundException('Trade not found');
     if (role !== UserRole.ADMIN && trade.userId !== userId) throw new ForbiddenException('Access denied');
+    await this.assertOwnStrategy(dto.strategyId, trade.userId);
 
     if (dto.ticker          !== undefined) trade.ticker          = dto.ticker.toUpperCase();
     if (dto.side            !== undefined) trade.side            = dto.side;
@@ -123,6 +127,13 @@ export class TradesService {
     if (!trade) throw new NotFoundException('Trade not found');
     if (role !== UserRole.ADMIN && trade.userId !== userId) throw new ForbiddenException('Access denied');
     await this.tradeRepository.remove(trade);
+  }
+
+  /** A trade may only point at a strategy of the trade's owner. */
+  private async assertOwnStrategy(strategyId: string | null | undefined, userId: string): Promise<void> {
+    if (!strategyId) return;
+    const owned = await this.tradeRepository.manager.existsBy(Strategy, { id: strategyId, userId });
+    if (!owned) throw new BadRequestException('Strategy not found');
   }
 
   private toResponseDto(trade: Trade): TradeResponseDto {

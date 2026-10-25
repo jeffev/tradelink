@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { marketDataService } from '@/services/market-data.service';
+import { useAuthStore } from '@/store/auth.store';
 import type { Ticker } from '@/types';
 import Button from '@/components/UI/Button';
 
 export default function DataImport() {
+  // Candles are shared by every account: CSV import and deletion are admin-only.
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -147,6 +150,7 @@ export default function DataImport() {
         </div>
 
         {/* CSV Import */}
+        {isAdmin && (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-4">
           <h2 className="text-sm font-semibold text-gray-300">Import CSV</h2>
           <p className="text-xs text-gray-500">
@@ -187,6 +191,7 @@ export default function DataImport() {
             Import CSV
           </Button>
         </div>
+        )}
       </div>
 
       {/* Ticker list */}
@@ -221,9 +226,11 @@ export default function DataImport() {
                     {new Date(t.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-2">
-                    <Button size="sm" variant="danger" onClick={() => handleDelete(t.symbol)}>
-                      Delete
-                    </Button>
+                    {isAdmin && (
+                      <Button size="sm" variant="danger" onClick={() => handleDelete(t.symbol)}>
+                        Delete
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}

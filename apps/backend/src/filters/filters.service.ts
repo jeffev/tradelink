@@ -10,6 +10,11 @@ import axios from 'axios';
 import { Filter } from './filter.entity';
 import { FilterResult } from './filter-result.entity';
 import { CreateFilterDto, UpdateFilterDto, RunScanDto } from './dtos/filter.dto';
+import { assertDateRange } from '../shared/constants/market';
+
+// A scan is answered synchronously, one worker call per symbol.
+const SCAN_TIMEOUT_MS = 45_000;
+const MAX_SCAN_DAYS = 5 * 366;
 
 @Injectable()
 export class FiltersService {
@@ -72,6 +77,7 @@ export class FiltersService {
       .split('T')[0];
     const startDate = dto.startDate ?? thirtyDaysAgo;
     const endDate = dto.endDate ?? today;
+    assertDateRange(startDate, endDate, MAX_SCAN_DAYS);
 
     const results: FilterResult[] = [];
 
@@ -83,7 +89,7 @@ export class FiltersService {
           logic: filter.logic,
           start_date: startDate,
           end_date: endDate,
-        });
+        }, { timeout: SCAN_TIMEOUT_MS });
 
         const { passed, indicatorValues } = response.data;
         const result = this.resultRepo.create({
@@ -99,7 +105,8 @@ export class FiltersService {
           symbol: symbol.toUpperCase(),
           passed: false,
           indicatorValues: {
-            error: err.response?.data?.detail ?? err.message,
+            // Worker's own message, or a generic one: never the raw network error.
+            error: err.response?.data?.detail ?? 'Market data worker unavailable',
           },
         });
         results.push(await this.resultRepo.save(result));

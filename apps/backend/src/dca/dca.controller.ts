@@ -1,8 +1,9 @@
 import {
   Controller, Get, Post, Delete,
   Body, Param, UseGuards, Request,
-  HttpCode, HttpStatus,
+  HttpCode, HttpStatus, ParseUUIDPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DCAService } from './dca.service';
@@ -16,6 +17,7 @@ export class DCAController {
   constructor(private readonly dcaService: DCAService) {}
 
   @Post()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   create(@Request() req, @Body() dto: CreateDCADto) {
     return this.dcaService.create(req.user.userId, dto);
   }
@@ -26,13 +28,13 @@ export class DCAController {
   }
 
   @Get(':id')
-  findOne(@Request() req, @Param('id') id: string) {
+  findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return this.dcaService.findOne(id, req.user.userId, req.user.role);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Request() req, @Param('id') id: string) {
+  remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return this.dcaService.remove(id, req.user.userId, req.user.role);
   }
 }

@@ -10,7 +10,9 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { FiltersService } from './filters.service';
@@ -34,14 +36,14 @@ export class FiltersController {
   }
 
   @Get(':id')
-  findOne(@Request() req, @Param('id') id: string) {
+  findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return this.filtersService.findOne(id, req.user.userId);
   }
 
   @Patch(':id')
   update(
     @Request() req,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateFilterDto,
   ) {
     return this.filtersService.update(id, req.user.userId, dto);
@@ -49,21 +51,22 @@ export class FiltersController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Request() req, @Param('id') id: string) {
+  remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return this.filtersService.remove(id, req.user.userId);
   }
 
   @Post(':id/scan')
+  @Throttle({ default: { ttl: 60_000, limit: 6 } })
   runScan(
     @Request() req,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RunScanDto,
   ) {
     return this.filtersService.runScan(id, req.user.userId, dto);
   }
 
   @Get(':id/results')
-  getResults(@Request() req, @Param('id') id: string) {
+  getResults(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return this.filtersService.getResults(id, req.user.userId);
   }
 }

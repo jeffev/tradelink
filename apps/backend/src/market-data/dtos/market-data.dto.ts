@@ -1,9 +1,13 @@
-import { IsString, IsIn, IsDateString, IsOptional } from 'class-validator';
+import { IsString, IsIn, IsDateString, IsOptional, Matches } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { SYMBOL_MESSAGE, SYMBOL_PATTERN } from '../../shared/constants/market';
 
 export class FetchCandlesDto {
   @ApiProperty({ example: 'AAPL' })
   @IsString()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @Matches(SYMBOL_PATTERN, { message: SYMBOL_MESSAGE })
   symbol: string;
 
   @ApiPropertyOptional({ example: '1d', enum: ['1d', '1h', '15m'] })

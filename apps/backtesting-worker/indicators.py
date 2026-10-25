@@ -683,7 +683,8 @@ def calculate_indicators(
         elif name == "VOLUME_PROFILE":
             key = "VOLUME_PROFILE"
             if key not in seen:
-                num_bins = int(params.get("num_bins", 50))
+                # Bounded: the histogram is allocated per call (np.zeros(num_bins)).
+                num_bins = min(max(int(params.get("num_bins", 50)), 5), 500)
                 vp_period = str(params.get("period", "month"))
                 results[key] = _volume_profile(df, num_bins, vp_period)
                 seen.add(key)

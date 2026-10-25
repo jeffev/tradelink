@@ -9,7 +9,9 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { IndicatorsService } from './indicators.service';
@@ -23,6 +25,7 @@ export class IndicatorsController {
   constructor(private readonly indicatorsService: IndicatorsService) {}
 
   @Post('calculate')
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   calculate(@Body() dto: CalculateIndicatorsDto) {
     return this.indicatorsService.calculate(dto);
   }
@@ -39,7 +42,7 @@ export class IndicatorsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Request() req, @Param('id') id: string) {
+  remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return this.indicatorsService.remove(id, req.user.userId);
   }
 }

@@ -5,6 +5,16 @@ import * as bcrypt from 'bcrypt';
 import { User } from './user.entity';
 import { CreateUserDto, UpdateUserDto, UpdateProfileDto, UserResponseDto } from './dtos/user.dto';
 
+// Throwaway visitor accounts (and the demo template account) live under this
+// domain; nobody may claim an address there by signing up or editing a profile.
+const RESERVED_EMAIL_DOMAIN = '@demo.tradelink';
+
+function assertEmailAllowed(email: string): void {
+  if (email.toLowerCase().endsWith(RESERVED_EMAIL_DOMAIN)) {
+    throw new BadRequestException('This email domain is reserved');
+  }
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -18,6 +28,7 @@ export class UsersService {
   }
 
   async createAndReturn(createUserDto: CreateUserDto): Promise<User> {
+    assertEmailAllowed(createUserDto.email);
     const existingUser = await this.userRepository.findOne({
       where: { email: createUserDto.email },
     });
@@ -85,19 +96,27 @@ export class UsersService {
     const user = await this.userRepository.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
 
-    if (dto.email && dto.email !== user.email) {
+    const changingEmail = !!dto.email && dto.email !== user.email;
+
+    // Email and password are what a login is made of: changing either takes the
+    // current password, so a leaked token alone cannot take the account over.
+    if (changingEmail || dto.newPassword) {
+      if (!dto.currentPassword) throw new BadRequestException('Current password is required');
+      const valid = await bcrypt.compare(dto.currentPassword, user.password);
+      if (!valid) throw new BadRequestException('Current password is incorrect');
+    }
+
+    if (changingEmail) {
+      assertEmailAllowed(dto.email!);
       const existing = await this.userRepository.findOne({ where: { email: dto.email } });
       if (existing) throw new ConflictException('Email already in use');
-      user.email = dto.email;
+      user.email = dto.email!;
     }
 
     if (dto.firstName) user.firstName = dto.firstName;
     if (dto.lastName) user.lastName = dto.lastName;
 
     if (dto.newPassword) {
-      if (!dto.currentPassword) throw new BadRequestException('Current password is required');
-      const valid = await bcrypt.compare(dto.currentPassword, user.password);
-      if (!valid) throw new BadRequestException('Current password is incorrect');
       user.password = await bcrypt.hash(dto.newPassword, 10);
     }
 

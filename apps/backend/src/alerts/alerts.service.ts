@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -9,6 +10,10 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { PriceAlert, AlertType } from './price-alert.entity';
 import { CreateAlertDto, UpdateAlertDto } from './dtos/alert.dto';
+
+// "Check alerts" calls the worker once per active alert, synchronously.
+const MAX_ALERTS_PER_USER = 50;
+const CHECK_TIMEOUT_MS = 30_000;
 
 @Injectable()
 export class AlertsService {
@@ -25,7 +30,12 @@ export class AlertsService {
   }
 
   async create(userId: string, dto: CreateAlertDto): Promise<PriceAlert> {
-    const alert = this.alertRepo.create({ userId, ...dto });
+    if ((await this.alertRepo.count({ where: { userId } })) >= MAX_ALERTS_PER_USER) {
+      throw new BadRequestException(
+        `At most ${MAX_ALERTS_PER_USER} alerts per account. Delete some first.`,
+      );
+    }
+    const alert = this.alertRepo.create({ userId, ...dto, symbol: dto.symbol.toUpperCase() });
     return this.alertRepo.save(alert);
   }
 
@@ -77,7 +87,7 @@ export class AlertsService {
           logic: 'AND',
           start_date: thirtyDaysAgo,
           end_date: today,
-        });
+        }, { timeout: CHECK_TIMEOUT_MS });
 
         if (response.data.passed) {
           alert.isTriggered = true;

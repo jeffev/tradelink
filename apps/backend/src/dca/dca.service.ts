@@ -1,11 +1,23 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { DCAJob, DCAStatus } from './dca-job.entity';
 import { CreateDCADto } from './dtos/create-dca.dto';
 import { UserRole } from '../users/user.entity';
+import { assertDateRange } from '../shared/constants/market';
+
+// Jobs share one worker queue: cap how many a single user can have waiting.
+// Jobs older than STALE_JOB_MS are ignored, so a crashed run cannot lock anyone out.
+const STALE_JOB_MS = 2 * 60 * 60 * 1000;
+const MAX_JOBS_IN_FLIGHT = 10;
 
 @Injectable()
 export class DCAService {
@@ -16,6 +28,20 @@ export class DCAService {
   ) {}
 
   async create(userId: string, dto: CreateDCADto): Promise<DCAJob> {
+    assertDateRange(dto.startDate, dto.endDate);
+    const inFlight = await this.jobRepo.count({
+      where: {
+        userId,
+        status: In([DCAStatus.PENDING, DCAStatus.RUNNING]),
+        createdAt: MoreThan(new Date(Date.now() - STALE_JOB_MS)),
+      },
+    });
+    if (inFlight >= MAX_JOBS_IN_FLIGHT) {
+      throw new HttpException(
+        `At most ${MAX_JOBS_IN_FLIGHT} DCA simulations can be queued at once. Wait for the current ones to finish.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
     const job = this.jobRepo.create({
       userId,
       symbol: dto.symbol.toUpperCase().trim(),

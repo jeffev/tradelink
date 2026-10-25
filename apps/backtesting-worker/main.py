@@ -9,6 +9,8 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import re
+from datetime import date
 from typing import Any
 
 import pandas as pd
@@ -17,7 +19,7 @@ import io
 import requests
 import yfinance as yf
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backtester import run_backtest
 from dca_engine import run_dca
@@ -42,69 +44,112 @@ app = FastAPI(title="Tradelink Backtesting Worker", version="2.0.0")
 # Schemas
 # ---------------------------------------------------------------------------
 
+# Symbols end up in stooq/Yahoo URLs: only ticker characters are accepted
+# (AAPL, PETR4.SA, BTC-USD, EURUSD=X, ^BVSP).
+SYMBOL_RE = re.compile(r"^[A-Za-z0-9^][A-Za-z0-9.=^-]{0,19}$")
+MAX_RANGE_DAYS = 20 * 366
+TIMEFRAMES = ("1d", "1w", "1mo", "1h", "15m")
+
+
+class MarketRequest(BaseModel):
+    """Symbol + date range shared by every endpoint that downloads prices."""
+
+    symbol: str
+    start_date: str          # YYYY-MM-DD
+    end_date: str            # YYYY-MM-DD
+
+    @field_validator("symbol")
+    @classmethod
+    def _check_symbol(cls, v: str) -> str:
+        v = v.strip()
+        if not SYMBOL_RE.fullmatch(v):
+            raise ValueError("invalid symbol")
+        return v
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _check_date(cls, v: str) -> str:
+        return date.fromisoformat(v[:10]).isoformat()
+
+    @model_validator(mode="after")
+    def _check_range(self):
+        days = (date.fromisoformat(self.end_date) - date.fromisoformat(self.start_date)).days
+        if days < 0:
+            raise ValueError("end_date must be after start_date")
+        if days > MAX_RANGE_DAYS:
+            raise ValueError(f"date range too long (max {MAX_RANGE_DAYS} days)")
+        return self
+
+
 class IndicatorConfig(BaseModel):
-    name: str
+    name: str = Field(max_length=40)
     params: dict[str, Any] = {}
 
 
-class RunBacktestRequest(BaseModel):
-    symbol: str
+class RunBacktestRequest(MarketRequest):
     strategy_type: str
     strategy_params: dict[str, Any] = {}
-    start_date: str          # YYYY-MM-DD
-    end_date: str            # YYYY-MM-DD
-    initial_capital: float = 10_000.0
-    brokerage_rate: float = 0.0
+    initial_capital: float = Field(10_000.0, gt=0, le=1e12)
+    brokerage_rate: float = Field(0.0, ge=0, le=0.1)
     timeframe: str = "1d"
-    indicators: list[IndicatorConfig] | None = None
+    indicators: list[IndicatorConfig] | None = Field(None, max_length=15)
+
+    @field_validator("timeframe")
+    @classmethod
+    def _check_timeframe(cls, v: str) -> str:
+        if v not in TIMEFRAMES:
+            raise ValueError(f"timeframe must be one of {TIMEFRAMES}")
+        return v
 
 
-class FetchCandlesRequest(BaseModel):
-    symbol: str
+class FetchCandlesRequest(MarketRequest):
     interval: str = "1d"
-    start_date: str
-    end_date: str
+
+    @field_validator("interval")
+    @classmethod
+    def _check_interval(cls, v: str) -> str:
+        if v not in TIMEFRAMES:
+            raise ValueError(f"interval must be one of {TIMEFRAMES}")
+        return v
 
 
-class CalculateIndicatorsRequest(BaseModel):
-    symbol: str
-    indicators: list[IndicatorConfig]
-    start_date: str
-    end_date: str
+class CalculateIndicatorsRequest(MarketRequest):
+    indicators: list[IndicatorConfig] = Field(max_length=15)
     timeframe: str = "1d"
+
+    @field_validator("timeframe")
+    @classmethod
+    def _check_timeframe(cls, v: str) -> str:
+        if v not in TIMEFRAMES:
+            raise ValueError(f"timeframe must be one of {TIMEFRAMES}")
+        return v
 
 
 class DCACondition(BaseModel):
-    indicator: str
-    operator: str
+    indicator: str = Field(max_length=40)
+    operator: str = Field(max_length=20)
     value: float
 
 
-class RunDCARequest(BaseModel):
-    symbol: str
-    start_date: str
-    end_date: str
-    amount_per_period: float = 500.0
+class RunDCARequest(MarketRequest):
+    amount_per_period: float = Field(500.0, gt=0, le=1e12)
     period: str = "monthly"          # weekly | biweekly | monthly | quarterly
-    day_of_month: int = 1
-    conditions: list[DCACondition] | None = None
+    day_of_month: int = Field(1, ge=1, le=28)
+    conditions: list[DCACondition] | None = Field(None, max_length=10)
     condition_logic: str = "AND"
-    indicators: list[IndicatorConfig] | None = None
+    indicators: list[IndicatorConfig] | None = Field(None, max_length=15)
 
 
 class FilterCondition(BaseModel):
-    indicator: str
+    indicator: str = Field(max_length=40)
     params: dict[str, Any] = {}
-    operator: str
+    operator: str = Field(max_length=20)
     value: float | None = None
 
 
-class RunScannerRequest(BaseModel):
-    symbol: str
-    conditions: list[FilterCondition]
+class RunScannerRequest(MarketRequest):
+    conditions: list[FilterCondition] = Field(max_length=20)
     logic: str = "AND"
-    start_date: str
-    end_date: str
 
 
 # ---------------------------------------------------------------------------
@@ -147,9 +192,9 @@ def _fetch_stooq(symbol: str, start: str, end: str) -> pd.DataFrame:
     d2 = end.replace("-", "")
     for sym in [f"{symbol}.US", symbol]:
         try:
-            url = f"https://stooq.com/q/d/l/?s={sym.lower()}&d1={d1}&d2={d2}&i=d"
-            logger.info(f"Trying stooq URL: {url}")
-            resp = requests.get(url, timeout=15)
+            params = {"s": sym.lower(), "d1": d1, "d2": d2, "i": "d"}
+            logger.info("Trying stooq for %s", sym)
+            resp = requests.get("https://stooq.com/q/d/l/", params=params, timeout=15)
             resp.raise_for_status()
             df = pd.read_csv(io.StringIO(resp.text), index_col="Date", parse_dates=True)
             if not df.empty and "No data" not in resp.text:

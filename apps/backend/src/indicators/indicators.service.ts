@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { SavedIndicator } from './indicator.entity';
 import { CalculateIndicatorsDto, SaveIndicatorDto } from './dtos/indicator.dto';
+import { assertDateRange } from '../shared/constants/market';
 
 @Injectable()
 export class IndicatorsService {
@@ -27,6 +28,7 @@ export class IndicatorsService {
   }
 
   async calculate(dto: CalculateIndicatorsDto): Promise<any> {
+    assertDateRange(dto.startDate, dto.endDate);
     try {
       const response = await axios.post(`${this.workerUrl}/calculate-indicators`, {
         symbol: dto.symbol,
@@ -34,16 +36,16 @@ export class IndicatorsService {
         start_date: dto.startDate,
         end_date: dto.endDate,
         timeframe: dto.timeframe ?? '1d',
-      });
+      }, { timeout: 60_000 });
       return response.data;
     } catch (err: any) {
-      const detail = err.response?.data?.detail ?? err.message;
+      const detail = err.response?.data?.detail ?? 'worker unavailable';
       throw new BadRequestException(`Worker error: ${detail}`);
     }
   }
 
   async save(userId: string, dto: SaveIndicatorDto): Promise<SavedIndicator> {
-    const indicator = this.savedIndicatorRepo.create({ userId, ...dto });
+    const indicator = this.savedIndicatorRepo.create({ userId, ...dto, symbol: dto.symbol.toUpperCase() });
     return this.savedIndicatorRepo.save(indicator);
   }
 

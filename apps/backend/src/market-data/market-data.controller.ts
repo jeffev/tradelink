@@ -12,7 +12,9 @@ import {
   ParseFilePipe,
   MaxFileSizeValidator,
   FileTypeValidator,
+  BadRequestException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -32,12 +34,17 @@ export class MarketDataController {
     return this.marketDataService.listTickers();
   }
 
+  // Real quotes only (the worker downloads them), bounded by DTO and date range.
   @Post('fetch')
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   fetchAndStore(@Body() dto: FetchCandlesDto) {
     return this.marketDataService.fetchAndStore(dto);
   }
 
+  // A CSV can hold any prices, and candles are shared by every user (the demo
+  // builds visitors' data from them): only administrators may import.
   @Post('import')
+  @UseGuards(AdminGuard)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -64,8 +71,8 @@ export class MarketDataController {
     @Body('symbol') symbol: string,
     @Body('interval') interval: string = '1d',
   ) {
-    if (!file) throw new Error('File is required');
-    if (!symbol) throw new Error('Symbol is required');
+    if (!file) throw new BadRequestException('File is required');
+    if (!symbol) throw new BadRequestException('Symbol is required');
     return this.marketDataService.importCsv(symbol, interval, file.buffer);
   }
 

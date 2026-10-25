@@ -11,6 +11,10 @@ import { parse } from 'csv-parse/sync';
 import { Ticker } from './ticker.entity';
 import { Candle } from './candle.entity';
 import { FetchCandlesDto } from './dtos/market-data.dto';
+import { assertDateRange } from '../shared/constants/market';
+
+// Candles are shared by every user: one fetch may add at most ~10 years of daily bars.
+const MAX_FETCH_DAYS = 10 * 366;
 
 @Injectable()
 export class MarketDataService {
@@ -33,6 +37,7 @@ export class MarketDataService {
 
   async fetchAndStore(dto: FetchCandlesDto): Promise<{ count: number }> {
     const { symbol, interval = '1d', startDate, endDate } = dto;
+    assertDateRange(startDate, endDate, MAX_FETCH_DAYS);
 
     let candles: Array<{
       timestamp: string;
@@ -49,7 +54,7 @@ export class MarketDataService {
         interval,
         start_date: startDate,
         end_date: endDate,
-      });
+      }, { timeout: 120_000 });
       candles = response.data.candles;
     } catch {
       throw new BadRequestException(
@@ -64,27 +69,27 @@ export class MarketDataService {
       await this.tickerRepo.save(ticker);
     }
 
-    // Upsert candles
+    // Insert new candles in batches; existing (symbol, interval, timestamp) rows win.
     let inserted = 0;
-    for (const c of candles) {
-      const existing = await this.candleRepo.findOne({
-        where: { symbol, interval, timestamp: new Date(c.timestamp) },
-      });
-      if (!existing) {
-        await this.candleRepo.save(
-          this.candleRepo.create({
-            symbol,
-            interval,
-            timestamp: new Date(c.timestamp),
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-            volume: c.volume,
-          }),
-        );
-        inserted++;
-      }
+    const rows = candles.map((c) => ({
+      symbol,
+      interval,
+      timestamp: new Date(c.timestamp),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume ?? 0,
+    }));
+    for (let i = 0; i < rows.length; i += 200) {
+      const result = await this.candleRepo
+        .createQueryBuilder()
+        .insert()
+        .into(Candle)
+        .values(rows.slice(i, i + 200))
+        .orIgnore()
+        .execute();
+      inserted += Array.isArray(result.raw) ? result.raw.length : 0;
     }
 
     return { count: inserted };

@@ -1,13 +1,24 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import helmet from 'helmet';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
+  const isProduction = configService.get('NODE_ENV') === 'production';
+
+  // One reverse proxy (Caddy, or nginx in docker-compose) sits in front:
+  // trust its X-Forwarded-For so rate limits see the real client address.
+  app.set('trust proxy', 1);
+
+  // Security headers. The JSON API needs no CSP relaxations; Swagger UI (dev
+  // only) does, so CSP is left off outside production.
+  app.use(helmet({ contentSecurityPolicy: isProduction ? undefined : false }));
 
   // Global exception filter
   app.useGlobalFilters(new HttpExceptionFilter());
@@ -32,7 +43,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // Swagger documentation (non-production)
-  if (configService.get('NODE_ENV') !== 'production') {
+  if (!isProduction) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Tradelink API')
       .setDescription('Trading platform REST API - Phase 1 MVP')
@@ -46,7 +57,7 @@ async function bootstrap() {
   const port = configService.get('PORT', 3001);
   await app.listen(port);
   console.log(`🚀 Backend running on http://localhost:${port}/api`);
-  if (configService.get('NODE_ENV') !== 'production') {
+  if (!isProduction) {
     console.log(`📖 Swagger docs: http://localhost:${port}/api/docs`);
   }
 }

@@ -10,7 +10,9 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AlertsService } from './alerts.service';
@@ -34,19 +36,20 @@ export class AlertsController {
   }
 
   @Get('check')
+  @Throttle({ default: { ttl: 60_000, limit: 6 } })
   checkAlerts(@Request() req) {
     return this.alertsService.checkAlerts(req.user.userId);
   }
 
   @Get(':id')
-  findOne(@Request() req, @Param('id') id: string) {
+  findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return this.alertsService.findOne(id, req.user.userId);
   }
 
   @Patch(':id')
   update(
     @Request() req,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAlertDto,
   ) {
     return this.alertsService.update(id, req.user.userId, dto);
@@ -54,7 +57,7 @@ export class AlertsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Request() req, @Param('id') id: string) {
+  remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return this.alertsService.remove(id, req.user.userId);
   }
 }

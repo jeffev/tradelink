@@ -952,13 +952,14 @@ export class DemoService implements OnApplicationBootstrap {
       .finally(() => (this.warming = null));
   }
 
-  /** Runs every demo job once under the template account, if not done yet. */
-  private async warmJobCache(): Promise<void> {
-    let template = await this.users.findOne({
+  /** The internal account whose results visitors copy; nobody can log into it. */
+  private async templateUser(): Promise<User> {
+    const template = await this.users.findOne({
       where: { email: TEMPLATE_EMAIL },
     });
-    if (!template) {
-      template = await this.users.save(
+    if (template) return template;
+    try {
+      return await this.users.save(
         this.users.create({
           email: TEMPLATE_EMAIL,
           firstName: 'Modelo',
@@ -967,8 +968,19 @@ export class DemoService implements OnApplicationBootstrap {
           role: UserRole.TRADER,
         }),
       );
+    } catch (err) {
+      // The warm-up and a visitor's seed may race to create it.
+      const created = await this.users.findOne({
+        where: { email: TEMPLATE_EMAIL },
+      });
+      if (created) return created;
+      throw err;
     }
-    const userId = template.id;
+  }
+
+  /** Runs every demo job once under the template account, if not done yet. */
+  private async warmJobCache(): Promise<void> {
+    const userId = (await this.templateUser()).id;
     const inFlight = [BacktestStatus.PENDING, BacktestStatus.RUNNING];
     const since = new Date(Date.now() - STALE_JOB_MS);
 
@@ -1152,12 +1164,15 @@ export class DemoService implements OnApplicationBootstrap {
       );
       if (!f.scanSymbols.length) continue;
 
+      // Only scans of the template account are reused: visitors can edit and
+      // rescan their own copy of a demo filter, and that must not leak into
+      // what the next visitors see.
+      const template = await this.templateUser();
       const cached = await this.filterResults
         .createQueryBuilder('r')
         .innerJoin('r.filter', 'f')
-        .innerJoin('f.user', 'u')
         .where('f.name = :name', { name: f.name })
-        .andWhere('u.email LIKE :domain', { domain: `%@${DEMO_EMAIL_DOMAIN}` })
+        .andWhere('f.userId = :templateId', { templateId: template.id })
         .andWhere('r.scannedAt > :fresh', { fresh })
         .orderBy('r.scannedAt', 'DESC')
         .getMany();
@@ -1189,11 +1204,53 @@ export class DemoService implements OnApplicationBootstrap {
       if (Date.now() - lastScan < 10 * 60 * 1000) continue;
       this.scansStartedAt.set(f.name, Date.now());
       const startDate = isoDay(new Date(Date.now() - 365 * DAY_MS));
-      void this.filtersService
-        .runScan(filter.id, userId, { symbols: f.scanSymbols, startDate })
+      void this.scanTemplateFilter(template.id, f, startDate)
+        .then((results) =>
+          this.filterResults.insert(
+            results.map((r) => ({
+              filterId: filter.id,
+              symbol: r.symbol,
+              passed: r.passed,
+              indicatorValues: r.indicatorValues,
+            })),
+          ),
+        )
         .catch((err: Error) =>
           this.logger.warn(`Demo scan failed: ${err.message}`),
         );
     }
+  }
+
+  /** Scans the template account's copy of a demo filter (created on demand). */
+  private async scanTemplateFilter(
+    templateId: string,
+    f: (typeof DEMO_FILTERS)[number],
+    startDate: string,
+  ): Promise<FilterResult[]> {
+    let filter = await this.filters.findOne({
+      where: { userId: templateId, name: f.name },
+    });
+    if (!filter) {
+      filter = await this.filters.save(
+        this.filters.create({
+          userId: templateId,
+          name: f.name,
+          description: f.description,
+          logic: f.logic,
+          isActive: true,
+          conditions: f.conditions.map((c) => ({ id: randomUUID(), ...c })),
+        }),
+      );
+    } else {
+      // Keep the template in step with demo-data.ts edits.
+      filter.description = f.description;
+      filter.logic = f.logic;
+      filter.conditions = f.conditions.map((c) => ({ id: randomUUID(), ...c }));
+      await this.filters.save(filter);
+    }
+    return this.filtersService.runScan(filter.id, templateId, {
+      symbols: f.scanSymbols,
+      startDate,
+    });
   }
 }

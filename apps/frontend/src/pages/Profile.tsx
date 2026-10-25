@@ -13,7 +13,10 @@ export default function Profile() {
     firstName: user?.firstName ?? '',
     lastName: user?.lastName ?? '',
     email: user?.email ?? '',
+    currentPassword: '',
   });
+  // The API asks for the current password before switching the login email.
+  const emailChanged = profileForm.email !== (user?.email ?? '');
 
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -32,7 +35,9 @@ export default function Profile() {
         firstName: profileForm.firstName,
         lastName: profileForm.lastName,
         email: profileForm.email,
+        ...(emailChanged ? { currentPassword: profileForm.currentPassword } : {}),
       });
+      setProfileForm((p) => ({ ...p, currentPassword: '' }));
       // sync store
       useAuthStore.setState((s) => ({ user: s.user ? { ...s.user, ...updated } : s.user }));
       localStorage.setItem('user', JSON.stringify({ ...user, ...updated }));
@@ -125,6 +130,19 @@ export default function Profile() {
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
             />
           </div>
+          {emailChanged && (
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Senha atual (para trocar o email)</label>
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={profileForm.currentPassword}
+                onChange={(e) => setProfileForm((p) => ({ ...p, currentPassword: e.target.value }))}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          )}
           <div className="flex justify-end">
             <Button type="submit" isLoading={savingProfile}>Salvar</Button>
           </div>
